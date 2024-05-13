@@ -1,0 +1,506 @@
+### Environmental setup 
+```{r}
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(gridExtra)
+library(caret)
+```
+
+### Importing the data and loading the CSV file
+```{r}
+data_hongkong <- read_csv("~/Desktop/2501 Project/Datasetv2.csv")
+selected_data <- select(data_hongkong, price, area = `saleable_area(ft^2)`, district, floor, Rental, public_housing = `Public Housing`, changes)
+
+View(data_london)
+```
+### Comparing the Saleable Area and Price as a whole
+```{r}
+plot_hk <- ggplot(selected_data, aes(x = area, y = price / 1e5)) +
+  geom_point(alpha = 0.5, color = "black", size = 1) +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(title = "House Price distribution by Saleable Area",
+       x = "Saleable Area (sq ft)", 
+       y = "House Price (HK$ 10k)") 
+
+print(plot_hk)
+```
+Analysis: The scatter plot shows two separate scatter clusters with different prices. This is highly likely because of Rental status.
+
+###Plot based on Rental Status
+```{r}
+plot_hk_rent_unrent <- ggplot(selected_data, aes(x = area, y = price / 1e5)) +
+  geom_point(alpha = 0.5, color = "black", size = 1) +
+  scale_x_log10() +
+  scale_y_log10() +
+  facet_wrap(~Rental, labeller = labeller(Rental = c(`TRUE` = "Rental", `FALSE` = "Non-Rental")), ncol = 1)+
+  labs(title = "Comparison of House Price vs. by Saleable Area by Rental Status",
+       x = "Saleable Area (sq ft)", 
+       y = "House Price (HK$ 10k)") 
+
+print(plot_hk_rent_unrent)
+```
+Analysis: The result shows how the price for Non-Rental and Rental is different for the same saleable area. However, as the two status displays the same distribution trend, solely using the Non-Rental data for further analysis will be sufficient because as Non-Rental household price increases it is highly likely that Rental household price will also increase following the same trend. Furthermore, as Non-Rental household is correlated with housing ownership, it is the main factor that drives the household prices. Hence from this point, data will be cleansed only to Non-Rental household. 
+
+## Plotting Non-Rental Households and adding the Linear Regression line 
+```{r}
+##Filtering the data for only Non-Rental households
+non_rental_house <- selected_data |>
+  filter(Rental == FALSE)
+
+model_area <- lm(log(price)~log(area), data = non_rental_house)
+intercept_area <- exp(coef(model_area)[1])
+slope_area <- coef(model_area)[2]
+plot_hk_unrent <- ggplot(non_rental_house, aes(x = area, y = price / 1e5)) +
+  geom_point(alpha = 0.5, color = "black", size = 1) +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(title = "Comparison of House Price by Saleable Area",
+       x = "Saleable Area (sq ft)", 
+       y = "House Price (HK$ 10k)") +
+  geom_smooth(method = "lm", se = FALSE, color = "red", formula = y ~ x)
+
+plot_hk_unrent + annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(Area) + %.2f", slope_area, log(intercept_area)), hjust = 1.1, vjust = 1.1, size = 3, color = "red")
+```
+Analysis: The linear regression line comes out as price = 1.08 * log(Area) + 9.11 because it is scaled in log scale for both x and y axis.The slope coefficient of 1.08 on the logarithm of the area suggests a very strong positive relationship between the saleable area and the price of a house. In other words, a 1% increase in the saleable area of a property is expected to result in approximately a 1.08% increase in the house price, which underscores that the saleable area is a critical factor in house price dynamics in Hong Kong. 
+
+In the context of real estate, a price elasticity (response of price to changes in area) greater than one is significant as it suggests that housing prices are not just responsive but actually disproportionately responsive to changes in area. This is a strong indicator of how valued additional space is in the Hong Kong housing market. Hence given the high value of real estate in densely population and geographically constrained region like Hong Kong, even small increases in area can significantly affect property values. 
+
+However, it is a common sense that the house price increases as saleable area increases. Need to define if it is actually a very critical factor that drives the Hong Kong housing price besides the common sense of price increase as saleable area increase.
+
+Picked 3 more countries that has the most expensive house prices in the world along with Hong Kong, that has a similar geographical size, one in Europe, one in Asia, and one in the States, New York, limiting to New York City due to its mass size. 
+
+#Importing the data and loading the CSV file and data cleansing
+```{r}
+## Prepare preprocessed data
+preprocessed_file_path_sg <- "preprocessed_data_singapore.csv"
+preprocessed_file_path_ld <- "preprocessed_data_london.csv"
+preprocessed_file_path_ny <- "preprocessed_data_newyork.csv"
+
+# Load original data if the preprocessed file does not exist
+if (!file.exists(preprocessed_file_path_sg) & !file.exists(preprocessed_file_path_ld) & !file.exists(preprocessed_file_path_ny)) {
+  
+  data_singapore <- read_csv("~/Desktop/2501 Project/singapore housing data.csv")
+  selected_data_singapore <- select(data_singapore, price = resale_price, area = floor_area_sqm)
+  
+  data_london <- read_csv("~/Desktop/2501 Project/london housing data.csv")
+  selected_data_london <- select(data_london, price = Price, area = `Area in sq ft`)
+
+  data_newyork <- read_csv("~/Desktop/2501 Project/newyork housing data.csv")
+  
+  # Remove rows with NA or infinite values in any column used in the plot and filtering out extreme outliers based on   quantiles for area
+  
+  # Calculate quantiles more stringently, e.g., removing top and bottom 5%
+  quantiles_sqft <- quantile(data_newyork$sqft, probs = c(0.05, 0.95), na.rm = TRUE)
+  quantiles_price <- quantile(data_newyork$Price, probs = c(0.05, 0.95), na.rm = TRUE)
+
+  # Additional filtering based on standard deviation
+  mean_sqft <- mean(data_newyork$sqft, na.rm = TRUE)
+  std_dev_sqft <- sd(data_newyork$sqft, na.rm = TRUE)
+  mean_price <- mean(data_newyork$Price, na.rm = TRUE)
+  std_dev_price <- sd(data_newyork$Price, na.rm = TRUE)
+
+  # Create cleaned data frame
+  cleaned_data <- data_newyork |>
+    filter(!is.na(Price), !is.na(sqft), is.finite(Price), is.finite(sqft)) |>
+    filter(sqft > quantiles_sqft[1], sqft < quantiles_sqft[2]) |>
+    filter(Price > quantiles_price[1], Price < quantiles_price[2]) |>
+    filter(sqft > mean_sqft - 3 * std_dev_sqft, sqft < mean_sqft + 3 * std_dev_sqft) |>
+    filter(Price > mean_price - 3 * std_dev_price, Price < mean_price + 3 * std_dev_price)
+
+
+  selected_data_newyork_all <- select(cleaned_data, price = Price, area = sqft, address = address)
+  selected_data_newyork <- selected_data_newyork_all |>
+    filter(
+    grepl("Bronx", address, ignore.case = TRUE) |
+    grepl("Brooklyn", address, ignore.case = TRUE) |
+    grepl("Manhattan", address, ignore.case = TRUE) |
+    grepl("Queens", address, ignore.case = TRUE) |
+    grepl("Staten Island", address, ignore.case = TRUE)
+  )
+  
+  ## Apply Conversion
+  
+  #Singapore
+  #Convert from sqm to sqft
+  selected_data_singapore$area <- selected_data_singapore$area * 10.764
+  #Average exchange rate from SGD to HKD for 2017-2022
+  selected_data_singapore$price <- selected_data_singapore$price * 5.8
+  
+  #London
+  # Approximate average exchange rate from GBP to HKD for 2017-2020
+  exchange_rate_london <- 10.28  
+  # Reading and selecting data for London
+  selected_data_london$price <- selected_data_london$price * exchange_rate_london  # Convert price from GBP to HKD
+ 
+  #New York
+  # Approximate average exchange rate from USD to HKD for 2017-2020
+  exchange_rate_newyork <- 7.78  
+  # Reading and selecting data for New York
+  selected_data_newyork$price <- selected_data_newyork$price * exchange_rate_newyork  # Convert price from USD to HKD
+  
+  # Save the preprocessed data to a new CSV file
+  write.csv(selected_data_singapore, preprocessed_file_path_sg, row.names = FALSE)
+  write.csv(selected_data_london, preprocessed_file_path_ld, row.names = FALSE)
+  write.csv(selected_data_newyork, preprocessed_file_path_ny, row.names = FALSE)
+}
+
+##Read the preprocessed data
+selected_data_singapore <- read.csv(preprocessed_file_path_sg)
+selected_data_london <- read.csv(preprocessed_file_path_ld)
+selected_data_newyork <- read.csv(preprocessed_file_path_ny)
+```
+
+#Printing summary statistics for each country 
+```{r}
+
+```
+
+# Define colors for each country
+```{r}
+colors <- c("Hong Kong" = "blue", "Singapore" = "green", "London" = "orange", "New York" = "purple")
+```
+
+
+#Plotting Hong Kong
+```{r}
+## Hong Kong
+model_area <- lm(log(price)~log(area), data = non_rental_house)
+intercept_area <- exp(coef(model_area)[1])
+slope_area <- coef(model_area)[2]
+
+plot_hk_unrent <- ggplot(non_rental_house, aes(x = area, y = price / 1e5)) +
+  geom_point(alpha = 0.5, size = 1, color = "gray") +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(title = "Hong Kong: Comparison of House Price by Saleable Area",
+       x = "Saleable Area (sq ft)", 
+       y = "House Price (HK$ 10k)") +
+  geom_smooth(method = "lm", se = FALSE, formula = y ~ x, color = colors["Hong Kong"]) +
+  scale_color_manual(values = colors) +
+  annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(Area) + %.2f", slope_area, log(intercept_area)), hjust = 1.1, vjust = 1.1, size = 3, color = "red")
+
+plot_hk_unrent + annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(Area) + %.2f", slope_area, log(intercept_area)), hjust = 1.1, vjust = 1.1, size = 3, color = "red")
+
+
+```
+
+#Plotting Singapore
+```{r}
+## Singapore
+
+model_area_singapore <- lm(log(price)~log(area), data = selected_data_singapore)
+intercept_area_sg <- exp(coef(model_area_singapore)[1])
+slope_area_sg <- coef(model_area_singapore)[2]
+
+plot_singapore <- ggplot(selected_data_singapore, aes(x = area, y = price / 1e5)) +
+  geom_point(alpha = 0.5, size = 1, color = "gray") +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(title = "Singapore: Comparison of House Price by Saleable Area",
+       x = "Saleable Area (sq ft)", 
+       y = "House Price (HK$ 10k)") +
+  geom_smooth(method = "lm", se = FALSE, formula = y ~ x, color = colors["Singapore"]) + 
+  scale_color_manual(values = colors) +
+  annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(Area) + %.2f", slope_area_sg, log(intercept_area_sg)), hjust = 1.1, vjust = 1.1, size = 3, color = "red")
+
+plot_singapore + annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(Area) + %.2f", slope_area_sg, log(intercept_area_sg)), hjust = 1.1, vjust = 1.1, size = 3, color = "red")
+
+```
+
+```{r}
+#London
+model_area_london <- lm(log(price)~log(area), data = selected_data_london)
+intercept_area_ld <- exp(coef(model_area_london)[1])
+slope_area_ld <- coef(model_area_london)[2]
+
+plot_london <- ggplot(selected_data_london, aes(x = area, y = price / 1e5)) +
+  geom_point(alpha = 0.5, size = 1, color = "gray") +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(title = "London: Comparison of House Price by Saleable Area",
+       x = "Saleable Area (sq ft)", 
+       y = "House Price (HK$ 10k)") +
+  geom_smooth(method = "lm", se = FALSE, formula = y ~ x, color = colors["London"]) +
+  scale_color_manual(values = colors) +
+  annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(Area) + %.2f", slope_area_ld, log(intercept_area_ld)), hjust = 1.1, vjust = 1.1, size = 3, color = "red")
+
+plot_london + annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(Area) + %.2f", slope_area_ld, log(intercept_area_ld)), hjust = 1.1, vjust = 1.1, size = 3, color = "red")
+```
+
+```{r}
+# Newyork
+
+model_area_newyork <- lm(log(price)~log(area), data = selected_data_newyork)
+intercept_area_ny <- exp(coef(model_area_newyork)[1])
+slope_area_ny <- coef(model_area_newyork)[2]
+
+plot_newyork <- ggplot(selected_data_newyork, aes(x = area, y = price / 1e5)) +
+  geom_point(alpha = 0.5, size = 1, color = "gray") +
+  scale_x_log10(labels = scales::label_number()) + 
+  scale_y_log10() +
+  labs(title = "New York: Comparison of House Price by Saleable Area",
+       x = "Saleable Area (sq ft)", 
+       y = "House Price (HK$ 10k)") +
+  geom_smooth(method = "lm", se = FALSE, formula = y ~ x, color = colors["New York"]) +
+  scale_color_manual(values = colors) +
+  annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(Area) + %.2f", slope_area_ny, log(intercept_area_ny)), hjust = 1.1, vjust = 1.1, size = 3, color = "red")
+
+plot_newyork + annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(Area) + %.2f", slope_area_ny, log(intercept_area_ny)), hjust = 1.1, vjust = 1.1, size = 3, color = "red")
+
+```
+
+### Comparsion of four countries
+```{r}
+plot_hk_unrent <- plot_hk_unrent + labs(title = "Hong Kong")
+plot_singapore <- plot_singapore + labs(title = "Singapore")
+plot_london <- plot_london + labs(title = "London")
+plot_newyork <- plot_newyork + labs(title = "New York")
+combined_plot <- grid.arrange(plot_hk_unrent, plot_singapore, plot_london, plot_newyork, ncol = 2, nrow = 2)
+```
+Analysis: Comparing among four countries, it could be seen how Hong Kong has a very big 
+
+
+### Organizing the data into categories of district groups for analysis
+```{r}
+#Separate into groups
+selected_data <- selected_data |>
+  mutate(district_group = case_when(
+    district %in% c("Kowloon Kowloon City District", 
+                    "Kowloon Kwun Tong District",
+                    "Kowloon Yau Tsim Mong District",
+                    "Kowloon Wong Tai Sin District",
+                    "Kowloon Sham Shui Po District") ~ "Kowloon",
+    district %in% c("New Territories East Sha Tin District",
+                    "New Territories East Long Ping Estate", 
+                    "New Territories East North District",
+                    "New Territories East Tai Po District",
+                    "New Territories West Islands District",
+                    "Kwai Tsing District",
+                    "Tsuen Wan District",
+                    "Yuen Long District",
+                    "Tuen Mun District") ~ "New Territories",
+    district %in% c("Wan Chai District",
+                    "HKIsIand Southern District",
+                    "Central and Western District",
+                    "HKIsIand Eastern District") ~ "Hong Kong Island",
+    TRUE ~ "Other"  
+  ))
+```
+
+###Statistical Summary of mean price, median price, min price, and max price for each district group
+```{r}
+summary_stats <- selected_data |>
+  group_by(district_group) |>
+  summarize(
+    mean_price = mean(price),
+    median_price = median(price),
+    min_price = min(price),
+    max_price = max(price),
+    .groups = 'drop'
+  ) 
+print(summary_stats)
+```
+
+### Boxplot for all raw data
+```{r}
+group_boxplot <- ggplot(selected_data, aes(x = district_group, y = price / 1e5, fill = district_group)) +
+  geom_boxplot() +
+  labs(title = "House Price distribution by District Group",
+       x = "District Group",
+       y = "House Price (HK$ 10k)") +
+  scale_y_log10()
+
+print(group_boxplot)
+```
+## Barplot for mean price 
+```{r}
+group_barplot <- ggplot(summary_stats, aes(x = district_group, y = mean_price / 1e5, fill = district_group)) +
+  geom_col() +
+  labs(title = "House Price distribution by District Group",
+       x = "District Group",
+       y = "Mean House Price (HK$ 10k)")+
+  scale_y_log10()
+
+print(group_barplot)
+```
+Analysis: 
+
+
+### Data filtering for subset for each district group
+```{r}
+data_hk_island <- selected_data |>
+  filter(district_group == "Hong Kong Island" & Rental == FALSE)
+
+data_kowloon <- selected_data |>
+  filter(district_group == "Kowloon" & Rental == FALSE)
+
+data_new_territories <- selected_data |>
+  filter(district_group == "New Territories" & Rental == FALSE)
+
+
+colors <- c("HKIsland" = "blue", "Kowloon" = "green", "NT" = "orange")
+
+```
+
+### Plotting the district group subset scatter plots
+```{r}
+model_hk_island_area <- lm(log(price)~log(area), data = data_hk_island)
+intercept_hkisland_area <- exp(coef(model_hk_island_area)[1])
+slope_hkisland_area <- coef(model_hk_island_area)[2]
+
+model_kowloon_area <- lm(log(price)~log(area), data = data_kowloon)
+intercept_kowloon_area <- exp(coef(model_kowloon_area)[1])
+slope_kowloon_area <- coef(model_kowloon_area)[2]
+
+model_newterritories_area <- lm(log(price)~log(area), data = data_new_territories)
+intercept_newterritories_area <- exp(coef(model_newterritories_area)[1])
+slope_newterritories_area <- coef(model_newterritories_area)[2]
+
+plot_hk_island <- ggplot(data_hk_island, aes(x = area, y = price / 1e5)) +
+  geom_point(alpha = 0.5, color = "gray", size = 1) +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(title = "Hong Kong Island: Saleable Area vs. Price",
+       x = "Saleable Area (sq ft)", 
+       y = "House Price (HK$ 10k)") +
+  geom_smooth(method = "lm", se = FALSE, formula = y ~ x, color = colors["HKIsland"]) +
+  scale_color_manual(values = colors) +
+  annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(Area) + %.2f", slope_hkisland_area, log(intercept_hkisland_area)), hjust = 1.1, vjust = 1.1, size = 3, color = "red")
+
+
+plot_kowloon <- ggplot(data_kowloon, aes(x = area, y = price / 1e5)) +
+  geom_point(alpha = 0.5, color = "gray", size = 1) +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(title = "Kowloon: Saleable Area vs. Price",
+       x = "Saleable Area (sq ft)",
+       y = "House Price (HK$ 10k)") +
+  geom_smooth(method = "lm", se = FALSE, formula = y ~ x, color = colors["Kowloon"]) +
+  scale_color_manual(values = colors) +
+  annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(Area) + %.2f", slope_kowloon_area, log(intercept_kowloon_area)), hjust = 1.1, vjust = 1.1, size = 3, color = "red") 
+
+
+plot_new_territories <- ggplot(data_new_territories, aes(x = area, y = price / 1e5)) +
+  geom_point(alpha = 0.5, color = "gray", size = 1) +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(title = "New Territories: Saleable Area vs. Price",
+       x = "Saleable Area (sq ft)", 
+       y = "House Price (HK$ 10k)") +
+  geom_smooth(method = "lm", se = FALSE, color = colors["NT"], formula = y ~ x) +
+  scale_color_manual(values = colors) +
+  annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(Area) + %.2f", slope_newterritories_area, log(intercept_newterritories_area)), hjust = 1.1, vjust = 1.1, size = 3, color = "red")
+
+```
+
+```{r}
+plot_hk_island + annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(Area) + %.2f", slope_hkisland_area, log(intercept_hkisland_area)), hjust = 1.1, vjust = 1.1, size = 3, color = "black")
+```
+
+```{r}
+plot_kowloon + annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(Area) + %.2f", slope_kowloon_area, log(intercept_kowloon_area)), hjust = 1.1, vjust = 1.1, size = 3, color = "black")
+```
+
+```{r}
+plot_new_territories + annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(Area) + %.2f", slope_newterritories_area, log(intercept_newterritories_area)), hjust = 1.1, vjust = 1.1, size = 3, color = "black")
+```
+Analysis: It could be seen how the the slope coefficient and the intercept is different for each of the district group. We have seen how the house price was different among the district group. This is also shown through the linear regression line. Hong Kong Island shows the greatest sensitivity of price to changes in saleable area, followed by Kowloon, with the New Territories showing the least sensitivity. This could be indicative of the varying levels of urban density, with Hong Kong Island being the most densely populated and commercially active, thus placing a higher premium on additional space. The intercepts suggest that base prices are highest in the New Territories, which might seem counter intuitive given its larger geographical area and potentially lower population density. This could be influenced by the presence of more new developments, luxury estates, or specific regions within the New Territories that have higher property values.These differences underline the segmentation in the Hong Kong housing market, where different districts not only reflect different price levels but also different price dynamics relative to property size.
+
+```{r}
+plot_hk_island <- plot_hk_island + labs(title = "Hong Kong Island")
+plot_kowloon <- plot_kowloon + labs(title = "Kowloon")
+plot_new_territories <- plot_new_territories + labs(title = "New Territories")
+
+combined_plot <- grid.arrange(plot_hk_island, plot_kowloon, plot_new_territories, ncol = 3)
+```
+
+
+
+
+
+Now we are going to use another house factor of floor to see how it affects the price.
+
+```{r}
+model_floor <- lm(log(price)~log(floor), data = non_rental_house)
+slope_floor <- coef(model_floor)[2]
+intercept_floor <- exp(coef(model_floor)[1]) 
+
+plot_floor <- ggplot(non_rental_house, aes(x = floor, y = price / 1e5)) +
+  geom_point(alpha = 0.5, color = "black", size = 1) +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(title = "House Price distribution by Floor Number",
+       x = "Floor",
+       y = "House Price (Hk$ 10k)") +
+  geom_smooth(method = "lm", se = FALSE, color = "red", formula = y ~ x)
+
+plot_floor + annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(floor) + %.2f", slope_floor, log(intercept_floor)), hjust = 1.1, vjust = 1.1, size = 3, color = "black")
+```
+Analysis: We have first distributed the data using the house factor of "Floor" for all district groups. It could be seen that the data is distributed without a trend or pattern that could be further analyzed. Then a linear regression line has been drawn to see the trend of the data points. As the linear regression line has a negative correlation coefficient, it could be analyzed that generally as the floor number increases, the house price tends to decrease when considering the logarithmic scale of both variables. This could be counter intuitive as higher floors in buildings are often thought to be more desirable and thus more expensive.  
+
+To further analyze if the district group also plays a role in the relationship between Price and Floor, the data is again further divided into district groups.
+
+```{r}
+model_hk_island_floor <- lm(log(price)~log(floor), data = data_hk_island)
+intercept_hkisland_floor <- exp(coef(model_hk_island_floor)[1])
+slope_hkisland_floor <- coef(model_hk_island_floor)[2]
+
+plot_hk_island_floor <- ggplot(data_hk_island, aes(x = floor, y = price / 1e6)) +
+  geom_point(alpha = 0.5, size = 1, color = "gray") +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(title = "Hong Kong Island: Price Distribution by Floor ",
+       x = "Floor",
+       y = "House Price (HK$ 10k)") +
+  geom_smooth(method = "lm", se = FALSE, color = colors["HKIsland"], formula = y ~ x) + 
+  annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(floor) + %.2f", slope_hkisland_floor, log(intercept_hkisland_floor)), hjust = 1.1, vjust = 1.1, size = 3, color = "red")
+```
+```{r}
+model_kowloon_floor <- lm(log(price)~log(floor), data = data_kowloon)
+slope_kowloon_floor <- coef(model_kowloon_floor)[2]
+intercept_kowloon_floor <- exp(coef(model_kowloon_floor)[1])
+  
+plot_kowloon_floor <- ggplot(data_kowloon, aes(x = floor, y = price / 1e5)) +
+  geom_point(alpha = 0.5, size = 1, color = "gray") +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(title = "Kowloon: Price Distribution by Floor ",
+       x = "Floor",
+       y = "House Price (HK$ 10k) ") + 
+  geom_smooth(method = "lm", se = FALSE, color = colors["Kowloon"], formula = y ~ x) +
+  annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(floor) + %.2f", slope_kowloon_floor, log(intercept_kowloon_floor)), hjust = 1.1, vjust = 1.1, size = 3, color = "red")
+```
+```{r}
+model_newterritories_floor <- lm(log(price)~log(floor), data = data_new_territories)
+slope_newterritories_floor <- coef(model_newterritories_floor)[2]
+intercept_newterritories_floor <- exp(coef(model_newterritories_floor)[1])
+
+plot_new_territories_floor <- ggplot(data_new_territories, aes(x = floor, y = price / 1e5)) +
+  geom_point(alpha = 0.5, size = 1, color = "gray") +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(title = "New Territories: Price Distribution by Floor",
+       x = "Floor",
+       y = "House Price (HK$ 10k") +
+  geom_smooth(method = "lm", se = FALSE, formula = y ~ x, color = colors["NT"]) +
+  scale_color_manual(values = colors) +
+  annotate("text", x = Inf, y = Inf, label = sprintf("Price = %.2f*log(floor) + %.2f", slope_newterritories_floor, log(intercept_newterritories_floor)), hjust = 1.1, vjust = 1.1, size = 3, color = "red")
+
+```
+```{r}
+plot_hk_island_floor <- plot_hk_island_floor + labs(title = "Hong Kong Island")
+plot_kowloon_floor <- plot_kowloon_floor + labs(title = "Kowloon")
+plot_new_territories_floor <- plot_new_territories_floor + labs(title = "New Territories")
+
+combined_plot <- grid.arrange(plot_hk_island, plot_kowloon, plot_new_territories, ncol = 3)
+```
+
+
+
+
+
+
+
